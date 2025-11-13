@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat WebSocket</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>💬 Chat WebSocket</h1>
+            <div class="status" id="status">
+                <span class="status-indicator" id="statusIndicator"></span>
+                <span id="statusText">Desconectado</span>
+            </div>
+        </header>
+
+        <div class="chat-container">
+            <div class="sidebar">
+                <h3>👥 Usuarios Conectados</h3>
+                <div class="users-count" id="usersCount">0 usuarios</div>
+                <div class="users-list" id="usersList"></div>
+            </div>
+
+            <div class="main-chat">
+                <div class="messages" id="messages"></div>
+                
+                <div class="input-container">
+                    <div class="nickname-display">
+                        <span>Nickname: <strong id="currentNickname">Usuario</strong></span>
+                        <button id="changeNickBtn" class="btn-small">Cambiar</button>
+                    </div>
+                    <div class="input-wrapper">
+                        <input 
+                            type="text" 
+                            id="messageInput" 
+                            placeholder="Escribe un mensaje o /help para comandos..." 
+                            disabled
+                        >
+                        <button id="sendBtn" disabled>Enviar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para cambiar nickname -->
+    <div class="modal" id="nickModal">
+        <div class="modal-content">
+            <h2>Cambiar Nickname</h2>
+            <input type="text" id="nickInput" placeholder="Nuevo nickname" maxlength="20">
+            <div class="modal-buttons">
+                <button id="saveNickBtn" class="btn-primary">Guardar</button>
+                <button id="cancelNickBtn" class="btn-secondary">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="client.js"></script>
+</body>
+</html>
+
