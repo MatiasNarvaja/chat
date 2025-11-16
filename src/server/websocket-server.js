@@ -5,6 +5,14 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { 
+  generateToken, 
+  verifyToken, 
+  registerUser, 
+  authenticateUser, 
+  getUserById,
+  updateUserNickname 
+} from './auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,12 +34,123 @@ const logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
 const app = express();
 const server = http.createServer(app);
 
+// Middleware para parsear JSON
+app.use(express.json());
+
 // Servir archivos estáticos desde la carpeta public
 app.use(express.static(path.join(__dirname, '../../public')));
 
 // Ruta principal
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../../public/index.html'));
+});
+
+// Endpoint de registro
+app.post('/api/register', async (req, res) => {
+  try {
+    const { username, password, nickname } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Usuario y contraseña son requeridos' 
+      });
+    }
+    
+    const user = registerUser(username, password, nickname);
+    const token = generateToken(user);
+    
+    logMessage('REGISTER', `Nuevo usuario registrado: ${user.username}`);
+    
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        nickname: user.nickname
+      }
+    });
+  } catch (error) {
+    logMessage('REGISTER_ERROR', error.message);
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Endpoint de login
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Usuario y contraseña son requeridos' 
+      });
+    }
+    
+    const user = authenticateUser(username, password);
+    const token = generateToken(user);
+    
+    logMessage('LOGIN', `Usuario autenticado: ${user.username}`);
+    
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        nickname: user.nickname
+      }
+    });
+  } catch (error) {
+    logMessage('LOGIN_ERROR', error.message);
+    res.status(401).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Endpoint para verificar token
+app.post('/api/verify', (req, res) => {
+  try {
+    const { token } = req.body;
+    
+    if (!token) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Token requerido' 
+      });
+    }
+    
+    const decoded = verifyToken(token);
+    const user = getUserById(decoded.id);
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Usuario no encontrado' 
+      });
+    }
+    
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        nickname: user.nickname
+      }
+    });
+  } catch (error) {
+    res.status(401).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 // Crear servidor WebSocket
@@ -77,8 +196,63 @@ function getConnectedUsers() {
     .map(client => client.nickname);
 }
 
+// Función para verificar el token de un cliente
+function verifyClientToken(ws) {
+  const client = clients.get(ws);
+  if (!client || !client.token) {
+    return false;
+  }
+  
+  try {
+    const decoded = verifyToken(client.token);
+    const user = getUserById(decoded.id);
+    
+    if (!user) {
+      return false;
+    }
+    
+    // Actualizar nickname si cambió en la base de datos
+    if (user.nickname !== client.nickname) {
+      client.nickname = user.nickname;
+    }
+    
+    return true;
+  } catch (error) {
+    logMessage('TOKEN_VERIFY_ERROR', `Token inválido para ${client.username}: ${error.message}`);
+    return false;
+  }
+}
+
+// Función para desloguear un cliente por token inválido
+function logoutClient(ws, reason = 'Token inválido o expirado') {
+  const client = clients.get(ws);
+  if (client) {
+    logMessage('LOGOUT', `${client.username} deslogueado: ${reason}`);
+    sendJSON(ws, 'error', { message: `❌ ${reason}. Por favor, inicia sesión nuevamente.` });
+    
+    // Notificar a otros usuarios
+    broadcast('system', { message: `🔴 ${client.nickname} se ha desconectado` }, ws);
+    
+    // Eliminar cliente del mapa
+    clients.delete(ws);
+    
+    // Actualizar lista de usuarios para todos los clientes restantes
+    broadcast('users', {
+      count: clients.size,
+      users: getConnectedUsers()
+    });
+  }
+  ws.close(1008, reason);
+}
+
 // Función para procesar comandos
 function processCommand(ws, message) {
+  // Verificar token antes de procesar comandos
+  if (!verifyClientToken(ws)) {
+    logoutClient(ws, 'Token inválido o expirado');
+    return true; // Retornar true para indicar que el comando fue "procesado" (rechazado)
+  }
+  
   const parts = message.split(' ');
   const command = parts[0].toLowerCase();
   const client = clients.get(ws);
@@ -96,10 +270,23 @@ function processCommand(ws, message) {
       }
       
       const oldNick = client.nickname;
-      client.nickname = newNick;
-      logMessage('NICK_CHANGE', `${oldNick} cambió su nick a ${newNick}`);
-      broadcast('system', { message: `🔄 ${oldNick} ahora se llama ${newNick}` }, ws);
-      sendJSON(ws, 'success', { message: `✅ Tu nickname ahora es: ${newNick}` });
+      
+      // Actualizar nickname en la base de datos si el usuario está autenticado
+      if (client.userId) {
+        try {
+          const updatedUser = updateUserNickname(client.userId, newNick);
+          client.nickname = updatedUser.nickname;
+        } catch (error) {
+          sendJSON(ws, 'error', { message: `❌ Error al actualizar nickname: ${error.message}` });
+          return true;
+        }
+      } else {
+        client.nickname = newNick;
+      }
+      
+      logMessage('NICK_CHANGE', `${oldNick} cambió su nick a ${client.nickname}`);
+      broadcast('system', { message: `🔄 ${oldNick} ahora se llama ${client.nickname}` }, ws);
+      sendJSON(ws, 'success', { message: `✅ Tu nickname ahora es: ${client.nickname}` });
       
       // Actualizar lista de usuarios para todos los clientes
       broadcast('users', {
@@ -147,9 +334,39 @@ function processCommand(ws, message) {
 
 // Manejar conexiones WebSocket
 wss.on('connection', (ws, req) => {
-  // Generar ID único para el cliente
-  clientCounter++;
-  const clientId = `Cliente_${clientCounter}`;
+  // Obtener token de la query string o headers
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const token = url.searchParams.get('token') || req.headers.authorization?.replace('Bearer ', '');
+  
+  let user = null;
+  let clientId = null;
+  let nickname = null;
+  
+  // Verificar autenticación
+  if (token) {
+    try {
+      const decoded = verifyToken(token);
+      user = getUserById(decoded.id);
+      
+      if (user) {
+        clientId = user.id;
+        nickname = user.nickname;
+      } else {
+        sendJSON(ws, 'error', { message: '❌ Usuario no encontrado' });
+        ws.close(1008, 'Usuario no encontrado');
+        return;
+      }
+    } catch (error) {
+      sendJSON(ws, 'error', { message: `❌ Error de autenticación: ${error.message}` });
+      ws.close(1008, 'Token inválido');
+      return;
+    }
+  } else {
+    // Si no hay token, rechazar conexión
+    sendJSON(ws, 'error', { message: '❌ Se requiere autenticación. Por favor, inicia sesión.' });
+    ws.close(1008, 'Autenticación requerida');
+    return;
+  }
   
   // Obtener IP del cliente
   const ip = req.socket.remoteAddress || 'unknown';
@@ -157,8 +374,11 @@ wss.on('connection', (ws, req) => {
   // Crear objeto cliente
   const client = {
     id: clientId,
-    nickname: clientId,
+    userId: user.id,
+    username: user.username,
+    nickname: nickname,
     ip: ip,
+    token: token, // Guardar token para verificación posterior
     connectedAt: new Date()
   };
   
@@ -192,21 +412,75 @@ wss.on('connection', (ws, req) => {
   // Manejar mensajes recibidos
   ws.on('message', (data) => {
     try {
-      const message = data.toString().trim();
+      const rawData = data.toString().trim();
       
-      if (!message) return; // Ignorar mensajes vacíos
+      if (!rawData) return; // Ignorar mensajes vacíos
       
-      // Manejar pings para mantener conexión viva
-      if (message === 'PING') {
+      // Manejar pings para mantener conexión viva (formato antiguo)
+      if (rawData === 'PING') {
         ws.send('PONG');
         return;
       }
       
+      let messageToken = null;
+      let messageContent = null;
+      let messageType = 'message';
+      
+      // Intentar parsear como JSON (nuevo formato con token)
+      try {
+        const parsed = JSON.parse(rawData);
+        messageToken = parsed.token;
+        messageContent = parsed.content;
+        messageType = parsed.type || 'message';
+      } catch (e) {
+        // Formato antiguo (solo texto) - mantener compatibilidad
+        messageContent = rawData;
+      }
+      
+      // Si el mensaje incluye token, verificar ese token
+      if (messageToken) {
+        try {
+          const decoded = verifyToken(messageToken);
+          const user = getUserById(decoded.id);
+          
+          if (!user) {
+            logoutClient(ws, 'Token inválido o expirado');
+            return;
+          }
+          
+          // Actualizar token y datos del cliente si el token es válido
+          const client = clients.get(ws);
+          if (client) {
+            client.token = messageToken;
+            if (user.nickname !== client.nickname) {
+              client.nickname = user.nickname;
+            }
+          }
+        } catch (error) {
+          logMessage('TOKEN_VERIFY_ERROR', `Token inválido en mensaje: ${error.message}`);
+          logoutClient(ws, 'Token inválido o expirado');
+          return;
+        }
+      } else {
+        // Si no hay token en el mensaje, verificar el token almacenado del cliente
+        if (!verifyClientToken(ws)) {
+          logoutClient(ws, 'Token inválido o expirado');
+          return;
+        }
+      }
+      
+      const client = clients.get(ws);
+      if (!client) {
+        return; // Cliente ya fue removido
+      }
+      
+      if (!messageContent) return; // Ignorar mensajes vacíos
+      
       // Procesar comandos
-      if (message.startsWith('/')) {
-        const isCommand = processCommand(ws, message);
+      if (messageContent.startsWith('/')) {
+        const isCommand = processCommand(ws, messageContent);
         if (isCommand) {
-          logMessage('COMMAND', `${client.nickname}: ${message}`);
+          logMessage('COMMAND', `${client.nickname}: ${messageContent}`);
           return;
         }
       }
@@ -214,10 +488,10 @@ wss.on('connection', (ws, req) => {
       // Procesar mensaje normal
       const chatMessage = {
         nickname: client.nickname,
-        message: message,
+        message: messageContent,
         timestamp: new Date().toISOString()
       };
-      logMessage('MESSAGE', `${client.nickname}: ${message}`);
+      logMessage('MESSAGE', `${client.nickname}: ${messageContent}`);
       broadcast('message', chatMessage, ws);
     } catch (err) {
       logMessage('ERROR', `Error procesando mensaje: ${err.message}`);

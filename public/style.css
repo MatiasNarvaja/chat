@@ -368,6 +368,73 @@ header h1 {
     background: #555;
 }
 
+/* Autenticación */
+.auth-tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #e0e0e0;
+}
+
+.auth-tab {
+    flex: 1;
+    padding: 10px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    color: #666;
+    transition: all 0.2s;
+}
+
+.auth-tab:hover {
+    color: #667eea;
+}
+
+.auth-tab.active {
+    color: #667eea;
+    border-bottom-color: #667eea;
+}
+
+.auth-form {
+    display: none;
+}
+
+.auth-form.active {
+    display: block;
+}
+
+.auth-form input {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 15px;
+    margin-bottom: 15px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.auth-form input:focus {
+    border-color: #667eea;
+}
+
+.auth-form button {
+    width: 100%;
+    padding: 12px;
+    margin-top: 10px;
+}
+
+.error-message {
+    color: #f44336;
+    font-size: 14px;
+    margin-bottom: 10px;
+    min-height: 20px;
+    text-align: center;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .chat-container {

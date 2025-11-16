@@ -1,0 +1,16 @@
+{
+  "mgnarva": {
+    "id": "user_1763334905079_xp92j38fh",
+    "username": "mgnarva",
+    "password": "1e34718d70a0f00e2ac11bfca7ddd6a8490be5f306163d6ff84cce4e48c8bce5",
+    "nickname": "Mati",
+    "createdAt": "2025-11-16T23:15:05.079Z"
+  },
+  "juan": {
+    "id": "user_1763334951180_8w4qvkg29",
+    "username": "juan",
+    "password": "ed08c290d7e22f7bb324b15cbadce35b0b348564fd2d5f95752388d86d71bcca",
+    "nickname": "juan",
+    "createdAt": "2025-11-16T23:15:51.180Z"
+  }
+}

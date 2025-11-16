@@ -7,11 +7,13 @@ class ChatClient {
         this.reconnectDelay = 2000;
         this.isConnected = false;
         this.nickname = 'Usuario';
+        this.token = null;
+        this.user = null;
         this.pingInterval = null;
         
         this.initializeElements();
         this.attachEventListeners();
-        this.connect();
+        this.checkAuth();
     }
 
     initializeElements() {
@@ -28,6 +30,21 @@ class ChatClient {
         this.nickInput = document.getElementById('nickInput');
         this.saveNickBtn = document.getElementById('saveNickBtn');
         this.cancelNickBtn = document.getElementById('cancelNickBtn');
+        
+        // Elementos de autenticación
+        this.authModal = document.getElementById('authModal');
+        this.loginForm = document.getElementById('loginForm');
+        this.registerForm = document.getElementById('registerForm');
+        this.loginUsername = document.getElementById('loginUsername');
+        this.loginPassword = document.getElementById('loginPassword');
+        this.loginBtn = document.getElementById('loginBtn');
+        this.loginError = document.getElementById('loginError');
+        this.registerUsername = document.getElementById('registerUsername');
+        this.registerPassword = document.getElementById('registerPassword');
+        this.registerNickname = document.getElementById('registerNickname');
+        this.registerBtn = document.getElementById('registerBtn');
+        this.registerError = document.getElementById('registerError');
+        this.authTabs = document.querySelectorAll('.auth-tab');
     }
 
     attachEventListeners() {
@@ -61,17 +78,204 @@ class ChatClient {
             this.nickModal.classList.remove('show');
         });
 
+        // Autenticación - Tabs
+        this.authTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.dataset.tab;
+                this.switchAuthTab(tabName);
+            });
+        });
+
+        // Login
+        this.loginBtn.addEventListener('click', () => this.handleLogin());
+        this.loginPassword.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.handleLogin();
+            }
+        });
+
+        // Registro
+        this.registerBtn.addEventListener('click', () => this.handleRegister());
+        this.registerPassword.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.handleRegister();
+            }
+        });
+
         // Cerrar modal con ESC
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && this.nickModal.classList.contains('show')) {
-                this.nickModal.classList.remove('show');
+            if (e.key === 'Escape') {
+                if (this.nickModal.classList.contains('show')) {
+                    this.nickModal.classList.remove('show');
+                }
             }
         });
     }
 
+    checkAuth() {
+        // Verificar si hay un token guardado
+        const savedToken = localStorage.getItem('chat_token');
+        if (savedToken) {
+            // Verificar si el token es válido
+            this.verifyToken(savedToken);
+        } else {
+            // Mostrar modal de autenticación
+            this.showAuthModal();
+        }
+    }
+
+    async verifyToken(token) {
+        try {
+            const response = await fetch('/api/verify', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ token })
+            });
+
+            const data = await response.json();
+            
+            if (data.success) {
+                this.token = token;
+                this.user = data.user;
+                this.nickname = data.user.nickname;
+                this.hideAuthModal();
+                this.connect();
+            } else {
+                localStorage.removeItem('chat_token');
+                this.showAuthModal();
+            }
+        } catch (error) {
+            console.error('Error verificando token:', error);
+            localStorage.removeItem('chat_token');
+            this.showAuthModal();
+        }
+    }
+
+    async handleLogin() {
+        const username = this.loginUsername.value.trim();
+        const password = this.loginPassword.value;
+
+        if (!username || !password) {
+            this.loginError.textContent = 'Por favor, completa todos los campos';
+            return;
+        }
+
+        this.loginError.textContent = '';
+        this.loginBtn.disabled = true;
+        this.loginBtn.textContent = 'Iniciando sesión...';
+
+        try {
+            const response = await fetch('/api/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                this.token = data.token;
+                this.user = data.user;
+                this.nickname = data.user.nickname;
+                localStorage.setItem('chat_token', data.token);
+                this.hideAuthModal();
+                this.connect();
+            } else {
+                this.loginError.textContent = data.error || 'Error al iniciar sesión';
+            }
+        } catch (error) {
+            console.error('Error en login:', error);
+            this.loginError.textContent = 'Error de conexión. Intenta nuevamente.';
+        } finally {
+            this.loginBtn.disabled = false;
+            this.loginBtn.textContent = 'Iniciar Sesión';
+        }
+    }
+
+    async handleRegister() {
+        const username = this.registerUsername.value.trim();
+        const password = this.registerPassword.value;
+        const nickname = this.registerNickname.value.trim();
+
+        if (!username || !password) {
+            this.registerError.textContent = 'Usuario y contraseña son requeridos';
+            return;
+        }
+
+        this.registerError.textContent = '';
+        this.registerBtn.disabled = true;
+        this.registerBtn.textContent = 'Registrando...';
+
+        try {
+            const response = await fetch('/api/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password, nickname: nickname || null })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                this.token = data.token;
+                this.user = data.user;
+                this.nickname = data.user.nickname;
+                localStorage.setItem('chat_token', data.token);
+                this.hideAuthModal();
+                this.connect();
+            } else {
+                this.registerError.textContent = data.error || 'Error al registrarse';
+            }
+        } catch (error) {
+            console.error('Error en registro:', error);
+            this.registerError.textContent = 'Error de conexión. Intenta nuevamente.';
+        } finally {
+            this.registerBtn.disabled = false;
+            this.registerBtn.textContent = 'Registrarse';
+        }
+    }
+
+    switchAuthTab(tabName) {
+        this.authTabs.forEach(tab => {
+            if (tab.dataset.tab === tabName) {
+                tab.classList.add('active');
+            } else {
+                tab.classList.remove('active');
+            }
+        });
+
+        if (tabName === 'login') {
+            this.loginForm.classList.add('active');
+            this.registerForm.classList.remove('active');
+            this.loginError.textContent = '';
+        } else {
+            this.registerForm.classList.add('active');
+            this.loginForm.classList.remove('active');
+            this.registerError.textContent = '';
+        }
+    }
+
+    showAuthModal() {
+        this.authModal.classList.add('show');
+    }
+
+    hideAuthModal() {
+        this.authModal.classList.remove('show');
+    }
+
     connect() {
+        if (!this.token) {
+            this.showAuthModal();
+            return;
+        }
+
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}`;
+        const wsUrl = `${protocol}//${window.location.host}?token=${encodeURIComponent(this.token)}`;
         
         try {
             this.ws = new WebSocket(wsUrl);
@@ -106,13 +310,25 @@ class ChatClient {
             }
         };
 
-        this.ws.onclose = () => {
+        this.ws.onclose = (event) => {
             this.isConnected = false;
             this.updateStatus(false, 'Desconectado');
             this.disableInput();
             this.stopPing();
-            this.addSystemMessage('🔌 Desconectado del servidor');
-            this.attemptReconnect();
+            
+            // Si el cierre fue por autenticación, mostrar modal de login
+            if (event.code === 1008) {
+                this.addSystemMessage('🔌 Desconectado: ' + event.reason);
+                localStorage.removeItem('chat_token');
+                this.token = null;
+                this.user = null;
+                setTimeout(() => {
+                    this.showAuthModal();
+                }, 1000);
+            } else {
+                this.addSystemMessage('🔌 Desconectado del servidor');
+                this.attemptReconnect();
+            }
         };
 
         this.ws.onerror = (error) => {
@@ -176,6 +392,21 @@ class ChatClient {
         const message = this.messageInput.value.trim();
         if (!message || !this.isConnected) return;
 
+        // Verificar que el token exista en localStorage antes de enviar
+        const storedToken = localStorage.getItem('chat_token');
+        if (!storedToken || storedToken !== this.token) {
+            this.addErrorMessage('❌ Sesión expirada. Por favor, inicia sesión nuevamente.');
+            this.token = null;
+            this.user = null;
+            if (this.ws) {
+                this.ws.close();
+            }
+            setTimeout(() => {
+                this.showAuthModal();
+            }, 1000);
+            return;
+        }
+
         // Procesar comandos del cliente primero
         if (message.startsWith('/')) {
             if (message === '/clear') {
@@ -185,9 +416,14 @@ class ChatClient {
             // Enviar otros comandos al servidor
             this.sendCommand(message);
         } else {
-            // Enviar mensaje normal
+            // Enviar mensaje normal con token
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.ws.send(message);
+                const messageData = {
+                    type: 'message',
+                    token: this.token,
+                    content: message
+                };
+                this.ws.send(JSON.stringify(messageData));
                 this.addMessage(this.nickname, message, new Date().toISOString(), 'user');
             }
         }
@@ -196,8 +432,28 @@ class ChatClient {
     }
 
     sendCommand(command) {
+        // Verificar que el token exista en localStorage antes de enviar
+        const storedToken = localStorage.getItem('chat_token');
+        if (!storedToken || storedToken !== this.token) {
+            this.addErrorMessage('❌ Sesión expirada. Por favor, inicia sesión nuevamente.');
+            this.token = null;
+            this.user = null;
+            if (this.ws) {
+                this.ws.close();
+            }
+            setTimeout(() => {
+                this.showAuthModal();
+            }, 1000);
+            return;
+        }
+
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(command);
+            const commandData = {
+                type: 'command',
+                token: this.token,
+                content: command
+            };
+            this.ws.send(JSON.stringify(commandData));
         }
     }
 
@@ -308,6 +564,11 @@ class ChatClient {
     }
 
     attemptReconnect() {
+        if (!this.token) {
+            this.showAuthModal();
+            return;
+        }
+        
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
             this.addSystemMessage(`🔄 Intentando reconectar... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
