@@ -10,9 +10,12 @@
     <div class="container">
         <header>
             <h1>💬 Chat WebSocket</h1>
-            <div class="status" id="status">
-                <span class="status-indicator" id="statusIndicator"></span>
-                <span id="statusText">Desconectado</span>
+            <div class="header-right">
+                <div class="status" id="status">
+                    <span class="status-indicator" id="statusIndicator"></span>
+                    <span id="statusText">Desconectado</span>
+                </div>
+                <button id="logoutBtn" class="btn-logout" title="Cerrar sesión">🚪 Salir</button>
             </div>
         </header>
 
@@ -41,6 +44,34 @@
                         <button id="sendBtn" disabled>Enviar</button>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de autenticación -->
+    <div class="modal show" id="authModal">
+        <div class="modal-content">
+            <h2>🔐 Autenticación</h2>
+            <div id="authTabs" class="auth-tabs">
+                <button class="auth-tab active" data-tab="login">Iniciar Sesión</button>
+                <button class="auth-tab" data-tab="register">Registrarse</button>
+            </div>
+            
+            <!-- Formulario de Login -->
+            <div id="loginForm" class="auth-form active">
+                <input type="text" id="loginUsername" placeholder="Usuario" autocomplete="username">
+                <input type="password" id="loginPassword" placeholder="Contraseña" autocomplete="current-password">
+                <div id="loginError" class="error-message"></div>
+                <button id="loginBtn" class="btn-primary">Iniciar Sesión</button>
+            </div>
+            
+            <!-- Formulario de Registro -->
+            <div id="registerForm" class="auth-form">
+                <input type="text" id="registerUsername" placeholder="Usuario (mín. 3 caracteres)" autocomplete="username">
+                <input type="password" id="registerPassword" placeholder="Contraseña (mín. 4 caracteres)" autocomplete="new-password">
+                <input type="text" id="registerNickname" placeholder="Nickname (opcional)" maxlength="20">
+                <div id="registerError" class="error-message"></div>
+                <button id="registerBtn" class="btn-primary">Registrarse</button>
             </div>
         </div>
     </div>
