@@ -12,5 +12,12 @@
     "password": "ed08c290d7e22f7bb324b15cbadce35b0b348564fd2d5f95752388d86d71bcca",
     "nickname": "juan",
     "createdAt": "2025-11-16T23:15:51.180Z"
+  },
+  "test": {
+    "id": "user_1763335786207_wpicmzn0i",
+    "username": "test",
+    "password": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "nickname": "prueba",
+    "createdAt": "2025-11-16T23:29:46.207Z"
   }
 }

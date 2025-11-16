@@ -45,6 +45,7 @@ class ChatClient {
         this.registerBtn = document.getElementById('registerBtn');
         this.registerError = document.getElementById('registerError');
         this.authTabs = document.querySelectorAll('.auth-tab');
+        this.logoutBtn = document.getElementById('logoutBtn');
     }
 
     attachEventListeners() {
@@ -101,6 +102,9 @@ class ChatClient {
                 this.handleRegister();
             }
         });
+
+        // Cerrar sesión
+        this.logoutBtn.addEventListener('click', () => this.handleLogout());
 
         // Cerrar modal con ESC
         document.addEventListener('keydown', (e) => {
@@ -266,6 +270,34 @@ class ChatClient {
 
     hideAuthModal() {
         this.authModal.classList.remove('show');
+    }
+
+    handleLogout() {
+        // Confirmar cierre de sesión
+        if (confirm('¿Estás seguro de que deseas cerrar sesión?')) {
+            // Limpiar token y datos de usuario
+            localStorage.removeItem('chat_token');
+            this.token = null;
+            this.user = null;
+            this.nickname = 'Usuario';
+            
+            // Cerrar conexión WebSocket
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.close(1000, 'Usuario cerró sesión');
+            }
+            
+            // Limpiar mensajes
+            this.messagesContainer.innerHTML = '';
+            
+            // Mostrar mensaje y modal de autenticación
+            this.addSystemMessage('👋 Sesión cerrada. Hasta luego!');
+            this.updateStatus(false, 'Desconectado');
+            this.disableInput();
+            
+            setTimeout(() => {
+                this.showAuthModal();
+            }, 500);
+        }
     }
 
     connect() {
