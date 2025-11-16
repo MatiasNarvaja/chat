@@ -100,6 +100,12 @@ function processCommand(ws, message) {
       logMessage('NICK_CHANGE', `${oldNick} cambió su nick a ${newNick}`);
       broadcast('system', { message: `🔄 ${oldNick} ahora se llama ${newNick}` }, ws);
       sendJSON(ws, 'success', { message: `✅ Tu nickname ahora es: ${newNick}` });
+      
+      // Actualizar lista de usuarios para todos los clientes
+      broadcast('users', {
+        count: clients.size,
+        users: getConnectedUsers()
+      });
       return true;
 
     case '/lista':
@@ -171,9 +177,15 @@ wss.on('connection', (ws, req) => {
   broadcast('system', { message: `🟢 ${client.nickname} se ha conectado` }, ws);
   logMessage('CONNECT', `${client.nickname} (${client.ip}) se conectó`);
 
-  // Enviar lista de usuarios actuales
+  // Enviar lista de usuarios actuales al nuevo cliente
   sendJSON(ws, 'users', { 
     count: clients.size, 
+    users: getConnectedUsers()
+  });
+
+  // Actualizar lista de usuarios para todos los clientes
+  broadcast('users', {
+    count: clients.size,
     users: getConnectedUsers()
   });
 
@@ -220,6 +232,12 @@ wss.on('connection', (ws, req) => {
       broadcast('system', { message: `🔴 ${client.nickname} se ha desconectado` }, ws);
       logMessage('DISCONNECT', `${client.nickname} se desconectó`);
       clients.delete(ws);
+      
+      // Actualizar lista de usuarios para todos los clientes restantes
+      broadcast('users', {
+        count: clients.size,
+        users: getConnectedUsers()
+      });
     }
   });
 
