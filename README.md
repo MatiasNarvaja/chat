@@ -1117,10 +1117,12 @@ chat_parcial/
 
 ---
 
-## 👥 Autores y Contribuciones
-Morganti Leonardo
-Narvaja Matias
+## 👥 Autores
+**Morganti Leonardo**
 
+**Narvaja Matias**
+
+---
 **Trabajo Práctico Final – Programación sobre Redes**
 
 Este proyecto fue desarrollado como trabajo práctico final para la materia de Programación sobre Redes.
