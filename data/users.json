@@ -3,7 +3,7 @@
     "id": "user_1763334905079_xp92j38fh",
     "username": "mgnarva",
     "password": "1e34718d70a0f00e2ac11bfca7ddd6a8490be5f306163d6ff84cce4e48c8bce5",
-    "nickname": "Mati",
+    "nickname": "Matias",
     "createdAt": "2025-11-16T23:15:05.079Z"
   },
   "juan": {
@@ -19,5 +19,12 @@
     "password": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
     "nickname": "prueba",
     "createdAt": "2025-11-16T23:29:46.207Z"
+  },
+  "leo": {
+    "id": "user_1763337663543_7kbfkripy",
+    "username": "leo",
+    "password": "7ab2d6e73d6ed4fb40fc1f97f051a183d01c3f469255b841a1cb529699310d28",
+    "nickname": "leo",
+    "createdAt": "2025-11-17T00:01:03.543Z"
   }
 }

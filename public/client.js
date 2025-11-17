@@ -1,4 +1,11 @@
 // Cliente WebSocket para el chat
+import { 
+    deriveEncryptionKey, 
+    encryptMessage, 
+    decryptMessage, 
+    isEncrypted 
+} from './crypto-client.js';
+
 class ChatClient {
     constructor() {
         this.ws = null;
@@ -10,6 +17,7 @@ class ChatClient {
         this.token = null;
         this.user = null;
         this.pingInterval = null;
+        this.encryptionKey = null; // Clave de cifrado derivada del token
         
         this.initializeElements();
         this.attachEventListeners();
@@ -144,6 +152,8 @@ class ChatClient {
                 this.token = token;
                 this.user = data.user;
                 this.nickname = data.user.nickname;
+                // Derivar clave de cifrado
+                await this.initializeEncryption();
                 this.hideAuthModal();
                 this.connect();
             } else {
@@ -154,6 +164,16 @@ class ChatClient {
             console.error('Error verificando token:', error);
             localStorage.removeItem('chat_token');
             this.showAuthModal();
+        }
+    }
+
+    async initializeEncryption() {
+        if (this.token) {
+            try {
+                this.encryptionKey = await deriveEncryptionKey(this.token);
+            } catch (error) {
+                console.error('Error inicializando cifrado:', error);
+            }
         }
     }
 
@@ -186,6 +206,8 @@ class ChatClient {
                 this.user = data.user;
                 this.nickname = data.user.nickname;
                 localStorage.setItem('chat_token', data.token);
+                // Derivar clave de cifrado
+                await this.initializeEncryption();
                 this.hideAuthModal();
                 this.connect();
             } else {
@@ -230,6 +252,8 @@ class ChatClient {
                 this.user = data.user;
                 this.nickname = data.user.nickname;
                 localStorage.setItem('chat_token', data.token);
+                // Derivar clave de cifrado
+                await this.initializeEncryption();
                 this.hideAuthModal();
                 this.connect();
             } else {
@@ -272,6 +296,25 @@ class ChatClient {
         this.authModal.classList.remove('show');
     }
 
+    handleListCommand() {
+        // Obtener lista de usuarios del sidebar
+        const usersList = Array.from(this.usersList.children).map(item => item.textContent);
+        const usersCount = this.usersCount.textContent;
+        
+        // Mostrar lista local inmediatamente
+        if (usersList.length === 0) {
+            this.addSystemMessage('👥 No hay usuarios conectados');
+        } else {
+            const message = `👥 ${usersCount}: ${usersList.join(', ')}`;
+            this.addSystemMessage(message);
+        }
+        
+        // También solicitar actualización al servidor para asegurar que tenemos la lista más reciente
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.sendCommand('/lista');
+        }
+    }
+
     handleLogout() {
         // Confirmar cierre de sesión
         if (confirm('¿Estás seguro de que deseas cerrar sesión?')) {
@@ -280,6 +323,7 @@ class ChatClient {
             this.token = null;
             this.user = null;
             this.nickname = 'Usuario';
+            this.encryptionKey = null;
             
             // Cerrar conexión WebSocket
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -329,15 +373,37 @@ class ChatClient {
             this.addSystemMessage('✅ Conectado al servidor');
         };
 
-        this.ws.onmessage = (event) => {
+        this.ws.onmessage = async (event) => {
             try {
-                const data = JSON.parse(event.data);
-                this.handleMessage(data);
-            } catch (error) {
-                // Si no es JSON, puede ser un PONG
+                // Si es un PONG, no procesar
                 if (event.data === 'PONG') {
                     return;
                 }
+                
+                const data = JSON.parse(event.data);
+                
+                // Si el mensaje está cifrado, descifrarlo
+                if (data.encrypted && data.data && typeof data.data === 'string') {
+                    if (!this.encryptionKey) {
+                        await this.initializeEncryption();
+                    }
+                    
+                    try {
+                        // Descifrar el contenido
+                        const decrypted = await decryptMessage(data.data, this.encryptionKey);
+                        // Reemplazar el contenido cifrado con el descifrado
+                        data.data = JSON.parse(decrypted);
+                    } catch (error) {
+                        console.error('Error al descifrar mensaje:', error);
+                        // Si falla el descifrado, intentar procesar sin descifrar
+                        // pero marcar como error
+                        data.type = 'error';
+                        data.data = { message: '❌ Error al descifrar mensaje' };
+                    }
+                }
+                
+                this.handleMessage(data);
+            } catch (error) {
                 console.error('Error al parsear mensaje:', error);
             }
         };
@@ -441,22 +507,32 @@ class ChatClient {
 
         // Procesar comandos del cliente primero
         if (message.startsWith('/')) {
-            if (message === '/clear') {
+            const command = message.toLowerCase().trim();
+            
+            // Comando /clear - Limpiar mensajes
+            if (command === '/clear') {
                 this.messagesContainer.innerHTML = '';
                 return;
             }
+            
+            // Comando /lista, /list, /users - Mostrar lista de usuarios
+            if (command === '/lista' || command === '/list' || command === '/users') {
+                this.handleListCommand();
+                return;
+            }
+            
+            // Comando /salir, /quit, /exit - Cerrar sesión
+            if (command === '/salir' || command === '/quit' || command === '/exit') {
+                this.handleLogout();
+                return;
+            }
+            
             // Enviar otros comandos al servidor
             this.sendCommand(message);
         } else {
-            // Enviar mensaje normal con token
+            // Enviar mensaje normal con token y cifrado
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                const messageData = {
-                    type: 'message',
-                    token: this.token,
-                    content: message
-                };
-                this.ws.send(JSON.stringify(messageData));
-                this.addMessage(this.nickname, message, new Date().toISOString(), 'user');
+                this.sendEncryptedMessage(message);
             }
         }
 
@@ -480,12 +556,35 @@ class ChatClient {
         }
 
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            const commandData = {
-                type: 'command',
+            this.sendEncryptedMessage(command, 'command');
+        }
+    }
+
+    async sendEncryptedMessage(content, type = 'message') {
+        try {
+            if (!this.encryptionKey) {
+                await this.initializeEncryption();
+            }
+
+            // Cifrar el contenido del mensaje
+            const encryptedContent = await encryptMessage(content, this.encryptionKey);
+            
+            const messageData = {
+                type: type,
                 token: this.token,
-                content: command
+                encrypted: true,
+                content: encryptedContent
             };
-            this.ws.send(JSON.stringify(commandData));
+            
+            this.ws.send(JSON.stringify(messageData));
+            
+            // Solo mostrar el mensaje si es un mensaje normal (no comando)
+            if (type === 'message') {
+                this.addMessage(this.nickname, content, new Date().toISOString(), 'user');
+            }
+        } catch (error) {
+            console.error('Error al cifrar y enviar mensaje:', error);
+            this.addErrorMessage('❌ Error al enviar mensaje cifrado');
         }
     }
 
