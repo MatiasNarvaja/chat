@@ -54,6 +54,16 @@ class ChatClient {
         this.registerError = document.getElementById('registerError');
         this.authTabs = document.querySelectorAll('.auth-tab');
         this.logoutBtn = document.getElementById('logoutBtn');
+        
+        // Elementos de chat privado
+        this.privateChatModal = document.getElementById('privateChatModal');
+        this.privateChatUser = document.getElementById('privateChatUser');
+        this.privateChatMessages = document.getElementById('privateChatMessages');
+        this.privateChatInput = document.getElementById('privateChatInput');
+        this.sendPrivateBtn = document.getElementById('sendPrivateBtn');
+        this.closePrivateChatBtn = document.getElementById('closePrivateChatBtn');
+        this.currentPrivateChatUser = null; // Usuario con el que se está chateando
+        this.privateChats = new Map(); // Almacenar historial de chats privados
     }
 
     attachEventListeners() {
@@ -114,11 +124,24 @@ class ChatClient {
         // Cerrar sesión
         this.logoutBtn.addEventListener('click', () => this.handleLogout());
 
+        // Chat privado
+        this.sendPrivateBtn.addEventListener('click', () => this.sendPrivateMessage());
+        this.privateChatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.sendPrivateMessage();
+            }
+        });
+        this.closePrivateChatBtn.addEventListener('click', () => this.closePrivateChat());
+
         // Cerrar modal con ESC
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 if (this.nickModal.classList.contains('show')) {
                     this.nickModal.classList.remove('show');
+                }
+                if (this.privateChatModal.classList.contains('show')) {
+                    this.closePrivateChat();
                 }
             }
         });
@@ -324,6 +347,8 @@ class ChatClient {
             this.user = null;
             this.nickname = 'Usuario';
             this.encryptionKey = null;
+            this.privateChats.clear(); // Limpiar historial de chats privados
+            this.currentPrivateChatUser = null;
             
             // Cerrar conexión WebSocket
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -393,12 +418,15 @@ class ChatClient {
                         const decrypted = await decryptMessage(data.data, this.encryptionKey);
                         // Reemplazar el contenido cifrado con el descifrado
                         data.data = JSON.parse(decrypted);
+                        data.encrypted = false; // Ya está descifrado
                     } catch (error) {
                         console.error('Error al descifrar mensaje:', error);
                         // Si falla el descifrado, intentar procesar sin descifrar
                         // pero marcar como error
-                        data.type = 'error';
-                        data.data = { message: '❌ Error al descifrar mensaje' };
+                        if (data.type !== 'private') {
+                            data.type = 'error';
+                            data.data = { message: '❌ Error al descifrar mensaje' };
+                        }
                     }
                 }
                 
@@ -482,6 +510,26 @@ class ChatClient {
                     helpText += data.data.commands.join('\n');
                 }
                 this.addSystemMessage(helpText);
+                break;
+
+            case 'private':
+                // Mensaje privado recibido
+                if (data.data.from && data.data.message) {
+                    const fromUser = data.data.from;
+                    const message = data.data.message;
+                    const timestamp = data.data.timestamp || new Date().toISOString();
+                    
+                    // Guardar mensaje en historial
+                    this.savePrivateMessage(fromUser, fromUser, message, timestamp, 'other');
+                    
+                    // Si el chat privado está abierto con este usuario, mostrarlo
+                    if (this.currentPrivateChatUser === fromUser) {
+                        this.addPrivateMessage(fromUser, message, timestamp, 'other');
+                    } else {
+                        // Mostrar notificación de mensaje privado
+                        this.addSystemMessage(`💬 Mensaje privado de ${fromUser}: ${message}`);
+                    }
+                }
                 break;
         }
     }
@@ -648,11 +696,137 @@ class ChatClient {
     updateUsersList(users) {
         this.usersList.innerHTML = '';
         users.forEach(user => {
+            // No mostrar al usuario actual en la lista
+            if (user === this.nickname) {
+                return;
+            }
+            
             const userDiv = document.createElement('div');
-            userDiv.className = 'user-item';
+            userDiv.className = 'user-item clickable';
             userDiv.textContent = user;
+            userDiv.dataset.username = user;
+            userDiv.addEventListener('click', () => this.openPrivateChat(user));
             this.usersList.appendChild(userDiv);
         });
+    }
+
+    openPrivateChat(username) {
+        this.currentPrivateChatUser = username;
+        this.privateChatUser.textContent = username;
+        this.privateChatModal.classList.add('show');
+        this.privateChatInput.focus();
+        
+        // Cargar historial de chat si existe
+        if (this.privateChats.has(username)) {
+            this.privateChatMessages.innerHTML = '';
+            this.privateChats.get(username).forEach(msg => {
+                this.addPrivateMessage(msg.nickname, msg.message, msg.timestamp, msg.type);
+            });
+        } else {
+            this.privateChatMessages.innerHTML = '';
+            this.addPrivateSystemMessage(`💬 Iniciaste un chat privado con ${username}`);
+        }
+        
+        this.scrollPrivateChatToBottom();
+    }
+
+    closePrivateChat() {
+        this.privateChatModal.classList.remove('show');
+        this.currentPrivateChatUser = null;
+        this.privateChatInput.value = '';
+    }
+
+    sendPrivateMessage() {
+        const message = this.privateChatInput.value.trim();
+        if (!message || !this.currentPrivateChatUser || !this.isConnected) return;
+
+        // Verificar token
+        const storedToken = localStorage.getItem('chat_token');
+        if (!storedToken || storedToken !== this.token) {
+            this.addErrorMessage('❌ Sesión expirada. Por favor, inicia sesión nuevamente.');
+            return;
+        }
+
+        // Enviar mensaje privado cifrado
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.sendPrivateEncryptedMessage(message, this.currentPrivateChatUser);
+        }
+
+        this.privateChatInput.value = '';
+    }
+
+    async sendPrivateEncryptedMessage(content, targetUser) {
+        try {
+            if (!this.encryptionKey) {
+                await this.initializeEncryption();
+            }
+
+            // Cifrar el contenido del mensaje
+            const encryptedContent = await encryptMessage(content, this.encryptionKey);
+            
+            const messageData = {
+                type: 'private',
+                token: this.token,
+                encrypted: true,
+                target: targetUser,
+                content: encryptedContent
+            };
+            
+            this.ws.send(JSON.stringify(messageData));
+            
+            // Agregar mensaje localmente
+            const timestamp = new Date().toISOString();
+            this.addPrivateMessage(this.nickname, content, timestamp, 'user');
+            this.savePrivateMessage(targetUser, this.nickname, content, timestamp, 'user');
+        } catch (error) {
+            console.error('Error al cifrar y enviar mensaje privado:', error);
+            this.addErrorMessage('❌ Error al enviar mensaje privado cifrado');
+        }
+    }
+
+    addPrivateMessage(nickname, message, timestamp, type) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${type}`;
+
+        const time = new Date(timestamp).toLocaleTimeString('es-ES', { 
+            hour: '2-digit', 
+            minute: '2-digit' 
+        });
+
+        messageDiv.innerHTML = `
+            <div class="message-header">
+                <span class="message-nickname">${this.escapeHtml(nickname)}</span>
+                <span class="message-time">${time}</span>
+            </div>
+            <div class="message-content">${this.formatMessage(message)}</div>
+        `;
+
+        this.privateChatMessages.appendChild(messageDiv);
+        this.scrollPrivateChatToBottom();
+    }
+
+    addPrivateSystemMessage(message) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message system';
+        messageDiv.innerHTML = `<div class="message-content">${this.formatMessage(message)}</div>`;
+        this.privateChatMessages.appendChild(messageDiv);
+        this.scrollPrivateChatToBottom();
+    }
+
+    savePrivateMessage(targetUser, nickname, message, timestamp, type) {
+        if (!this.privateChats.has(targetUser)) {
+            this.privateChats.set(targetUser, []);
+        }
+        this.privateChats.get(targetUser).push({
+            nickname,
+            message,
+            timestamp,
+            type
+        });
+    }
+
+    scrollPrivateChatToBottom() {
+        this.privateChatMessages.scrollTop = this.privateChatMessages.scrollHeight;
     }
 
     updateStatus(connected, text) {
