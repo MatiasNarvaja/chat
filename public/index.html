@@ -88,6 +88,25 @@
         </div>
     </div>
 
+    <!-- Modal de chat privado -->
+    <div class="modal" id="privateChatModal">
+        <div class="modal-content private-chat-modal">
+            <div class="private-chat-header">
+                <h2>💬 Chat privado con <span id="privateChatUser">Usuario</span></h2>
+                <button id="closePrivateChatBtn" class="btn-close">✕</button>
+            </div>
+            <div class="private-chat-messages" id="privateChatMessages"></div>
+            <div class="private-chat-input-container">
+                <input 
+                    type="text" 
+                    id="privateChatInput" 
+                    placeholder="Escribe un mensaje privado..."
+                >
+                <button id="sendPrivateBtn" class="btn-primary">Enviar</button>
+            </div>
+        </div>
+    </div>
+
     <script type="module" src="crypto-client.js"></script>
     <script type="module" src="client.js"></script>
 </body>

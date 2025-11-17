@@ -255,6 +255,38 @@ function broadcastEncrypted(type, data, excludeWs = null, encryptionKey = null) 
   });
 }
 
+// Función para enviar mensaje privado cifrado
+function sendPrivateMessage(ws, data, encryptionKey) {
+  if (ws.readyState === ws.OPEN) {
+    try {
+      const dataString = JSON.stringify(data);
+      
+      if (encryptionKey) {
+        // Cifrar mensaje privado
+        const encryptedData = encryptMessage(dataString, encryptionKey);
+        
+        const encryptedMessage = {
+          type: 'private',
+          data: encryptedData,
+          encrypted: true,
+          timestamp: new Date().toISOString()
+        };
+        
+        ws.send(JSON.stringify(encryptedMessage));
+      } else {
+        // Enviar sin cifrar si no hay clave
+        ws.send(JSON.stringify({ 
+          type: 'private', 
+          data, 
+          timestamp: new Date().toISOString() 
+        }));
+      }
+    } catch (error) {
+      logMessage('PRIVATE_MESSAGE_ERROR', `Error enviando mensaje privado: ${error.message}`);
+    }
+  }
+}
+
 // Función para obtener lista de usuarios conectados
 function getConnectedUsers() {
   return Array.from(clients.values())
@@ -500,10 +532,11 @@ wss.on('connection', (ws, req) => {
       let messageContent = null;
       let messageType = 'message';
       let isEncryptedMessage = false;
+      let parsed = null;
       
       // Intentar parsear como JSON (nuevo formato con token)
       try {
-        const parsed = JSON.parse(rawData);
+        parsed = JSON.parse(rawData);
         messageToken = parsed.token;
         messageContent = parsed.content;
         messageType = parsed.type || 'message';
@@ -511,6 +544,7 @@ wss.on('connection', (ws, req) => {
       } catch (e) {
         // Formato antiguo (solo texto) - mantener compatibilidad
         messageContent = rawData;
+        parsed = null;
       }
       
       // Si el mensaje incluye token, verificar ese token
@@ -551,6 +585,54 @@ wss.on('connection', (ws, req) => {
       }
       
       if (!messageContent) return; // Ignorar mensajes vacíos
+      
+      // Manejar mensajes privados
+      if (messageType === 'private') {
+        if (!parsed || !parsed.target) {
+          sendJSON(ws, 'error', { message: '❌ Debes especificar un destinatario' });
+          return;
+        }
+        
+        const targetUser = parsed.target;
+        
+        // Descifrar mensaje privado si está cifrado
+        if (isEncryptedMessage && client.encryptionKey) {
+          try {
+            messageContent = decryptMessage(messageContent, client.encryptionKey);
+          } catch (error) {
+            logMessage('DECRYPT_ERROR', `Error descifrando mensaje privado de ${client.username}: ${error.message}`);
+            sendJSON(ws, 'error', { message: '❌ Error al descifrar mensaje privado' });
+            return;
+          }
+        }
+        
+        // Buscar el cliente destino por nickname
+        let targetClient = null;
+        clients.forEach((c, wsClient) => {
+          if (c.nickname === targetUser && wsClient !== ws) {
+            targetClient = { client: c, ws: wsClient };
+          }
+        });
+        
+        if (!targetClient) {
+          sendJSON(ws, 'error', { message: `❌ Usuario ${targetUser} no está conectado` });
+          return;
+        }
+        
+        // Crear mensaje privado
+        const privateMessage = {
+          from: client.nickname,
+          message: messageContent,
+          timestamp: new Date().toISOString()
+        };
+        
+        logMessage('PRIVATE_MESSAGE', `${client.nickname} -> ${targetUser}: ${messageContent}`);
+        
+        // Enviar mensaje privado cifrado al destinatario
+        sendPrivateMessage(targetClient.ws, privateMessage, targetClient.client.encryptionKey);
+        
+        return;
+      }
       
       // Descifrar mensaje si está cifrado
       if (isEncryptedMessage && client.encryptionKey) {
