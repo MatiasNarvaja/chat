@@ -26,5 +26,12 @@
     "password": "7ab2d6e73d6ed4fb40fc1f97f051a183d01c3f469255b841a1cb529699310d28",
     "nickname": "leo",
     "createdAt": "2025-11-17T00:01:03.543Z"
+  },
+  "tomas": {
+    "id": "user_1763338639056_azv96v2zy",
+    "username": "tomas",
+    "password": "c9affe7f758723c3eb9fe8b143520c7d3c73fa7cacdbf1a76b34e18624cc6ecf",
+    "nickname": "tomas",
+    "createdAt": "2025-11-17T00:17:19.056Z"
   }
 }
