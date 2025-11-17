@@ -13,6 +13,12 @@ import {
   getUserById,
   updateUserNickname 
 } from './auth.js';
+import { 
+  deriveEncryptionKey, 
+  encryptMessage, 
+  decryptMessage, 
+  isEncrypted 
+} from './crypto.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -169,9 +175,30 @@ function logMessage(type, data) {
 }
 
 // Función para enviar mensaje JSON a un cliente
-function sendJSON(ws, type, data) {
+function sendJSON(ws, type, data, useEncryption = false) {
   if (ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify({ type, data, timestamp: new Date().toISOString() }));
+    const client = clients.get(ws);
+    const baseMessage = { type, data, timestamp: new Date().toISOString() };
+    
+    if (useEncryption && client && client.encryptionKey) {
+      try {
+        const dataString = JSON.stringify(data);
+        const encryptedData = encryptMessage(dataString, client.encryptionKey);
+        const encryptedMessage = {
+          type,
+          data: encryptedData,
+          encrypted: true,
+          timestamp: new Date().toISOString()
+        };
+        ws.send(JSON.stringify(encryptedMessage));
+        return;
+      } catch (error) {
+        logMessage('SEND_ENCRYPT_ERROR', `Error cifrando mensaje: ${error.message}`);
+        // Fallback: enviar sin cifrar
+      }
+    }
+    
+    ws.send(JSON.stringify(baseMessage));
   }
 }
 
@@ -186,6 +213,44 @@ function broadcast(type, data, excludeWs = null) {
   clients.forEach((client, ws) => {
     if (ws !== excludeWs && ws.readyState === ws.OPEN) {
       ws.send(message);
+    }
+  });
+}
+
+// Función para broadcast cifrado a todos los clientes
+function broadcastEncrypted(type, data, excludeWs = null, encryptionKey = null) {
+  const baseMessage = { 
+    type, 
+    data, 
+    timestamp: new Date().toISOString() 
+  };
+  
+  const dataString = JSON.stringify(data);
+  
+  clients.forEach((client, ws) => {
+    if (ws !== excludeWs && ws.readyState === ws.OPEN) {
+      try {
+        // Si el cliente tiene clave de cifrado, cifrar el mensaje
+        if (client.encryptionKey) {
+          const encryptedData = encryptMessage(dataString, client.encryptionKey);
+          
+          const encryptedMessage = {
+            type,
+            data: encryptedData,
+            encrypted: true,
+            timestamp: new Date().toISOString()
+          };
+          
+          ws.send(JSON.stringify(encryptedMessage));
+        } else {
+          // Enviar sin cifrar si no hay clave
+          ws.send(JSON.stringify(baseMessage));
+        }
+      } catch (error) {
+        logMessage('BROADCAST_ERROR', `Error enviando mensaje a ${client.username}: ${error.message}`);
+        // Fallback: enviar sin cifrar
+        ws.send(JSON.stringify(baseMessage));
+      }
     }
   });
 }
@@ -371,6 +436,14 @@ wss.on('connection', (ws, req) => {
   // Obtener IP del cliente
   const ip = req.socket.remoteAddress || 'unknown';
   
+  // Derivar clave de cifrado del token
+  let encryptionKey = null;
+  try {
+    encryptionKey = deriveEncryptionKey(token);
+  } catch (error) {
+    logMessage('ENCRYPTION_ERROR', `Error derivando clave: ${error.message}`);
+  }
+  
   // Crear objeto cliente
   const client = {
     id: clientId,
@@ -379,6 +452,7 @@ wss.on('connection', (ws, req) => {
     nickname: nickname,
     ip: ip,
     token: token, // Guardar token para verificación posterior
+    encryptionKey: encryptionKey, // Clave de cifrado derivada
     connectedAt: new Date()
   };
   
@@ -425,6 +499,7 @@ wss.on('connection', (ws, req) => {
       let messageToken = null;
       let messageContent = null;
       let messageType = 'message';
+      let isEncryptedMessage = false;
       
       // Intentar parsear como JSON (nuevo formato con token)
       try {
@@ -432,6 +507,7 @@ wss.on('connection', (ws, req) => {
         messageToken = parsed.token;
         messageContent = parsed.content;
         messageType = parsed.type || 'message';
+        isEncryptedMessage = parsed.encrypted === true;
       } catch (e) {
         // Formato antiguo (solo texto) - mantener compatibilidad
         messageContent = rawData;
@@ -476,6 +552,17 @@ wss.on('connection', (ws, req) => {
       
       if (!messageContent) return; // Ignorar mensajes vacíos
       
+      // Descifrar mensaje si está cifrado
+      if (isEncryptedMessage && client.encryptionKey) {
+        try {
+          messageContent = decryptMessage(messageContent, client.encryptionKey);
+        } catch (error) {
+          logMessage('DECRYPT_ERROR', `Error descifrando mensaje de ${client.username}: ${error.message}`);
+          sendJSON(ws, 'error', { message: '❌ Error al descifrar mensaje' });
+          return;
+        }
+      }
+      
       // Procesar comandos
       if (messageContent.startsWith('/')) {
         const isCommand = processCommand(ws, messageContent);
@@ -492,7 +579,9 @@ wss.on('connection', (ws, req) => {
         timestamp: new Date().toISOString()
       };
       logMessage('MESSAGE', `${client.nickname}: ${messageContent}`);
-      broadcast('message', chatMessage, ws);
+      
+      // Cifrar mensaje antes de broadcast
+      broadcastEncrypted('message', chatMessage, ws, client.encryptionKey);
     } catch (err) {
       logMessage('ERROR', `Error procesando mensaje: ${err.message}`);
       sendJSON(ws, 'error', { message: 'Error al procesar el mensaje' });
